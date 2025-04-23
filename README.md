@@ -5,11 +5,28 @@ A command-line tool that converts natural language into shell commands using LLM
 ## Features
 
 - 🤖 Natural language to shell command conversion
-- 🛡️ Safety checks for potentially dangerous commands
+- 🛡️ Advanced safety checks for potentially dangerous commands
 - 📝 Command history with search functionality
 - 🎨 Colorized output for better readability
 - 🔧 Configurable model selection
 - ✅ Interactive command confirmation
+- 🚫 Protection against destructive operations
+- 🔍 Detection of recursive and privileged operations
+
+## Safety Features
+
+The tool includes multiple layers of protection:
+
+- **Command Validation**: Checks for dangerous patterns like:
+  - Destructive commands (`rm -rf`, `dd`, etc.)
+  - System file operations
+  - Recursive operations
+  - Privilege escalation
+  - Dangerous `find` commands
+- **Interactive Confirmation**: Always asks for confirmation before execution
+- **History Tracking**: Maintains a log of all commands for auditing
+- **Special Character Handling**: Properly escapes special characters in input
+- **Warning System**: Color-coded warnings for different types of dangerous operations
 
 ## Prerequisites
 
@@ -80,19 +97,30 @@ View help message:
 ./ai.sh --help
 ```
 
+## Safety Warnings
+
+The tool will warn you about potentially dangerous operations:
+
+1. **Destructive Commands**: Commands that could delete or overwrite data
+2. **System Operations**: Commands that affect system files or directories
+3. **Recursive Operations**: Commands that operate recursively on directories
+4. **Privileged Operations**: Commands that require elevated privileges
+
+When a dangerous command is detected:
+- The command is displayed with a warning
+- The original prompt is shown
+- The specific dangerous pattern is identified
+- You're advised to type the command manually if absolutely necessary
+
 ## How It Works
 
 1. The tool takes your natural language prompt
-2. Sends it to Ollama with a system prompt to generate shell commands
-3. Displays the generated command and asks for confirmation
-4. If confirmed, executes the command
-5. Stores the interaction in history
-
-## Safety Features
-
-- Commands are always shown for confirmation before execution
-- The LLM is instructed to output "UNSAFE" for potentially dangerous commands
-- Command history is maintained for auditing purposes
+2. Sanitizes the input to handle special characters
+3. Sends it to Ollama with a system prompt to generate shell commands
+4. Validates the generated command for safety
+5. Displays the command and asks for confirmation
+6. If confirmed, executes the command
+7. Stores the interaction in history
 
 ## History Storage
 
