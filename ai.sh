@@ -11,6 +11,55 @@ NC='\033[0m' # No Color
 HISTORY_DIR="$HOME/.term_llm"
 HISTORY_FILE="$HISTORY_DIR/history.txt"
 
+# Dangerous command patterns
+DANGEROUS_PATTERNS=(
+    "rm -rf"
+    "rm -r"
+    "rm -f"
+    "rm -rf /"
+    "rm -r /"
+    "rm -f /"
+    "dd if="
+    "dd of="
+    "mkfs"
+    "mkfs."
+    "format"
+    "erase"
+    "wipe"
+    "delete"
+    "destroy"
+    "overwrite"
+    "shred"
+    "mv /"
+    "cp /"
+    "chmod -R"
+    "chown -R"
+    "chgrp -R"
+    "> /dev/"
+    "> /proc/"
+    "> /sys/"
+    "> /etc/"
+    "> /var/"
+    "> /usr/"
+    "> /bin/"
+    "> /sbin/"
+    "> /lib/"
+    "> /opt/"
+    "> /root/"
+    "> /home/"
+    "> /boot/"
+    "> /media/"
+    "> /mnt/"
+    "> /srv/"
+    "> /tmp/"
+    "find . -type d -exec"
+    "find . -type f -exec"
+    "find . -delete"
+    "find / -delete"
+    "find . -exec rm"
+    "find / -exec rm"
+)
+
 # Help function
 show_help() {
     cat << EOF
@@ -81,6 +130,47 @@ check_ollama() {
     fi
 }
 
+# Sanitize input for JSON
+sanitize_json() {
+    local input="$1"
+    # Escape backslashes, quotes, and control characters
+    echo "$input" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\x1b/\\u001b/g' -e 's/\x0d/\\r/g' -e 's/\x0a/\\n/g'
+}
+
+# Check for dangerous commands
+check_dangerous_command() {
+    local command="$1"
+    local prompt="$2"
+    
+    # Check for dangerous patterns
+    for pattern in "${DANGEROUS_PATTERNS[@]}"; do
+        if [[ "$command" == *"$pattern"* ]]; then
+            echo -e "${RED}WARNING: This command contains potentially dangerous operations:${NC}"
+            echo -e "${RED}Pattern detected: $pattern${NC}"
+            echo -e "${RED}Original prompt: $prompt${NC}"
+            echo -e "${RED}Command: $command${NC}"
+            echo -e "${YELLOW}If you really need to run this command, please type it manually.${NC}"
+            return 1
+        fi
+    done
+    
+    # Check for root operations
+    if [[ "$command" == *"sudo "* ]] || [[ "$command" == *"su "* ]]; then
+        echo -e "${YELLOW}WARNING: This command requires elevated privileges.${NC}"
+        echo -e "${YELLOW}Please review carefully before proceeding.${NC}"
+        return 0
+    fi
+    
+    # Check for recursive operations
+    if [[ "$command" == *" -R "* ]] || [[ "$command" == *" -r "* ]] || [[ "$command" == *" -rf "* ]]; then
+        echo -e "${YELLOW}WARNING: This command performs recursive operations.${NC}"
+        echo -e "${YELLOW}Please review carefully before proceeding.${NC}"
+        return 0
+    fi
+    
+    return 0
+}
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -128,11 +218,15 @@ SYSTEM_PROMPT="You are a terminal assistant. Only output the correct Unix shell 
 # Check if Ollama is running
 check_ollama
 
+# Sanitize inputs for JSON
+SANITIZED_PROMPT=$(sanitize_json "$USER_PROMPT")
+SANITIZED_SYSTEM=$(sanitize_json "$SYSTEM_PROMPT")
+
 # Create JSON payload with proper escaping
 PAYLOAD=$(jq -n \
     --arg model "$MODEL_NAME" \
-    --arg system "$SYSTEM_PROMPT" \
-    --arg user "$USER_PROMPT" \
+    --arg system "$SANITIZED_SYSTEM" \
+    --arg user "$SANITIZED_PROMPT" \
     '{
         model: $model,
         messages: [
@@ -140,22 +234,27 @@ PAYLOAD=$(jq -n \
             {role: "user", content: $user}
         ],
         stream: false
-    }')
+    }') || error_exit "Failed to create JSON payload. Please check your input for special characters."
 
 # Send request to ollama via curl
 RESPONSE=$(curl -s http://localhost:11434/api/chat -d "$PAYLOAD") || error_exit "Failed to communicate with Ollama"
 
 # Extract the command
-COMMAND=$(echo "$RESPONSE" | jq -r '.message.content') || error_exit "Failed to parse Ollama response"
+COMMAND=$(echo "$RESPONSE" | jq -r '.message.content') || error_exit "Failed to parse Ollama response. The response might contain invalid characters."
 
 # Safety check
 if [[ "$COMMAND" == "UNSAFE" ]]; then
     error_exit "The requested command was deemed unsafe to execute"
 fi
 
+# Check for dangerous commands
+if ! check_dangerous_command "$COMMAND" "$USER_PROMPT"; then
+    exit 1
+fi
+
 # Save to history file
 mkdir -p "$HISTORY_DIR"
-echo "$(date '+%Y-%m-%d %H:%M:%S') | $USER_PROMPT | $COMMAND" >> "$HISTORY_DIR/history.txt"
+echo "$(date '+%Y-%m-%d %H:%M:%S') | $USER_PROMPT | $COMMAND" >> "$HISTORY_FILE"
 
 # Display the command and ask for confirmation
 echo -e "\n${BLUE}Here's the command:${NC}"
