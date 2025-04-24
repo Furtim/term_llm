@@ -123,10 +123,26 @@ error_exit() {
     exit 1
 }
 
-# Check if Ollama is running
+# Check if Ollama is running and model is installed
 check_ollama() {
+    # Check if Ollama service is running
     if ! curl -s "http://localhost:11434/api/health" > /dev/null; then
         error_exit "Ollama service is not running. Please start it first."
+    fi
+
+    # Check if model is installed
+    if ! curl -s "http://localhost:11434/api/tags" | jq -e ".models[] | select(.name == \"$MODEL_NAME\")" > /dev/null; then
+        echo -e "${YELLOW}Model '$MODEL_NAME' is not installed.${NC}"
+        read "PULL_MODEL?Would you like to pull it now? [y/N] "
+        if [[ "$PULL_MODEL" =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}Pulling model '$MODEL_NAME'...${NC}"
+            if ! ollama pull "$MODEL_NAME"; then
+                error_exit "Failed to pull model '$MODEL_NAME'"
+            fi
+            echo -e "${GREEN}Model pulled successfully!${NC}"
+        else
+            error_exit "Model '$MODEL_NAME' is required but not installed"
+        fi
     fi
 }
 
@@ -215,7 +231,7 @@ MODEL_NAME=${MODEL_NAME:-${TERM_LLM_MODEL:-"llama3.1:8b"}}
 # System prompt to enforce shell-only output
 SYSTEM_PROMPT="You are a terminal assistant. Only output the correct Unix shell command to achieve the user's goal. Do not include explanations, markdown formatting, or anything else—only output the raw command. If you're not sure about a command or if it might be dangerous, output 'UNSAFE' instead."
 
-# Check if Ollama is running
+# Check if Ollama is running and model is installed
 check_ollama
 
 # Sanitize inputs for JSON
